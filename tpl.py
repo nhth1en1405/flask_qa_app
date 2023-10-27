@@ -1,5 +1,5 @@
 from flask import Flask, redirect, render_template, request, flash, session
-from forms import SignUpForm, SignInForm, TaskForm
+from forms import SignUpForm, SignInForm, TaskForm, ProjectForm
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 import os
@@ -99,23 +99,33 @@ def logOut():
 def newTask():
     a_user_id=session.get('user')
     form=TaskForm()
+    form.inputProjectName.choices=[(p.project_id, p.name) for p in db.session.query(models.Project).all()]
     form.inputPriority.choices=[(p.priority_id,p.text) for p in db.session.query(models.Priority).all()]
+    form.inputStatus.choices=[(p.status_id,p.description) for p in db.session.query(models.Status).all()]
     if a_user_id:
         user=db.session.query(models.User).filter_by(user_id=a_user_id).first()
         
         if form.validate_on_submit():
             _description=form.inputDescription.data
             _priority_id=form.inputPriority.data
+            _deadline=form.inputDeadline.data
+            _project_id=form.inputProjectName.data
+            _status_id=form.inputStatus.data
             priority=db.session.query(models.Priority).filter_by(priority_id=_priority_id).first()
-
+            project=db.session.query(models.Project).filter_by(project_id=_project_id).first()
+            status=db.session.query(models.Project).filter_by(status_id=_status_id).first()
             _task_id=request.form['hiddenTaskId']
+            if project and _deadline > project.deadline:
+                flash("Deadline of the task cannot be later than the project's deadline.", "error")
+                return render_template('/newTask.html', form=form, user=user)
             if (_task_id=="0"):
-                task=models.Task(description=_description, user=user, priority=priority)
+                task=models.Task(description=_description, priority=priority, deadline=_deadline, project=project,status=status)
                 db.session.add(task)
             else:
                 task = db.session.query(models.Task).filter_by(task_id=_task_id).first()
                 task.description=_description
                 task.priority=priority
+                task.deadline=_deadline
 
             db.session.commit()
             return redirect('/userHome')
@@ -140,27 +150,75 @@ def editTask():
     form=TaskForm()
     form.inputPriority.choices=[(p.priority_id, p.text) for p in db.session.query(models.Priority).all()]
     if _user_id:
-        user=db.session.query(models.User).filter_by(user_id=_user_id).first()
         _task_id=request.form['hiddenTaskId']
         if _task_id:
             task=db.session.query(models.Task).filter_by(task_id=_task_id).first()
             form.inputDescription.default=task.description
             form.inputPriority.default=task.priority_id
             form.process()
-            return render_template('/newtask.html', form=form, user=user, task=task)
+            return render_template('/newtask.html', form=form, task=task)
     return redirect('/')
 
-@app.route('/doneTask', methods=['GET', 'POST'])
-def doneTask():
+
+@app.route('/newProject',methods=['GET','POST'])
+def newProject():
+    a_user_id=session.get('user')
+    form=ProjectForm()
+    form.inputStatus.choices=[(s.status_id,s.description) for s in db.session.query(models.Status).all()]
+    if a_user_id:
+        user=db.session.query(models.User).filter_by(user_id=a_user_id).first()
+        
+        if form.validate_on_submit():
+            _name=form.inputName.data
+            _description=form.inputDescription.data
+            _deadline=form.inputDeadline.data
+            _status_id=form.inputStatus.data
+            status=db.session.query(models.Status).filter_by(status_id=_status_id).first()
+
+            _project_id=request.form['hiddenProjectId']
+            if (_project_id=="0"):
+                project=models.Project(name=_name, description=_description,deadline=_deadline, user=user, status=status)
+                db.session.add(project)
+            else:
+                project = db.session.query(models.Project).filter_by(project_id=_project_id).first()
+                project.name=_name
+                project.description=_description
+                project.status=status
+
+            db.session.commit()
+            return redirect('/userHome')
+        return render_template('/newProject.html', form=form, user=user)
+    return redirect('/')
+
+@app.route('/deleteProject', methods=['GET','POST'])
+def deleteProject():
     _user_id=session.get('user')
     if _user_id:
-        _task_id=request.form['hiddenTaskId']
-        if _task_id:
-            task=db.session.query(models.Task).filter_by(task_id=_task_id).first()
-            task.isCompleted=True
+        _project_id=request.form['hiddenProjectId']
+        if _project_id:
+            project=db.session.query(models.Project).filter_by(project_id=_project_id).first()
+            db.session.delete(project)
             db.session.commit()
         return redirect('/userHome')
     return redirect('/')
+
+@app.route('/editProject', methods=['GET', 'POST'])
+def editProject():
+    _user_id=session.get('user')
+    form=ProjectForm()
+    form.inputStatus.choices=[(p.status_id, p.description) for p in db.session.query(models.Status).all()]
+    if _user_id:
+        _project_id=request.form['hiddenProjectId']
+        if _project_id:
+            project=db.session.query(models.Project).filter_by(project_id=_project_id).first()
+            form.inputName.default=project.name
+            form.inputDescription.default=project.description
+            form.inputDeadline.default=project.deadline
+            form.inputStatus.default=project.status_id
+            form.process()
+            return render_template('/newProject.html', form=form, project=project, user=_user_id)
+    return redirect('/')
+
 if __name__=='__main__':
     app.run(host='127.0.0.1', port='8080', debug=True)
 
